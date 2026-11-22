@@ -1,6 +1,6 @@
 # Host Protocol
 
-This document describes the text command protocol on the controller's USB serial port. A host program (TReadmill, a terminal, a script) uses it to cut and restore a machine's mains power and to run a timed power cycle. It is the contract: the firmware and every host are tested against it.
+This document describes the text command protocol on the controller's USB serial port. A host program ([TReadmill](https://github.com/SensoriumEmbedded/treadmill), a terminal, a script) uses it to cut and restore a machine's mains power and to run a timed power cycle. It is the contract: the firmware and every host are tested against it.
 
 Protocol version: **1** (`proto=1` in the `?` reply).
 
@@ -76,7 +76,7 @@ Channels are numbered from 1, in the order `Pins.h` lists them. `ch=` in the `?`
 - **The relay is off when the firmware isn't running.** This covers a controller with no USB power, one being reflashed, and one in its bootloader. The supply's switch, wired across the relay, bypasses it: on ON the machine has power whatever the controller does, and on AUTO the controller decides.
 - A hung controller is reset by its watchdog and comes back on as above.
 
-The controller cannot tell whether the bypass switch is on, or whether anything is drawing current. A host learns both by watching the machine: TReadmill fails a power cycle in which the TeensyROM never left USB.
+The controller cannot tell whether the bypass switch is on, or whether anything is drawing current. A host learns both by watching the machine: [TReadmill](https://github.com/SensoriumEmbedded/treadmill) fails a power cycle in which the TeensyROM never left USB.
 
 ## Example
 

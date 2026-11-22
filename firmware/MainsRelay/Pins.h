@@ -4,7 +4,7 @@
   relay's input holds a floating pin low, so the relay is off while the
   firmware isn't running.
 
-  Pin 2 is a placeholder until hardware/wiring.md names the pin wired.
+  Pin 2 is the pin README.md's wiring names.
 */
 #pragma once
 #include <stdint.h>
