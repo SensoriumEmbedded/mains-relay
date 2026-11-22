@@ -30,7 +30,7 @@ Protocol version: **1** (`proto=1` in the `?` reply).
   |--------|---------|
   | `syntax` | Unknown command, a missing channel, or a bad number |
   | `range` | A channel this controller doesn't have, or a time outside its range |
-  | `busy` | The channel is in a `CYCLE`, or `CYCLE` was sent to a channel held off by `OFF` |
+  | `busy` | `OFF` or `CYCLE` sent to a channel in a `CYCLE` or with an `ON` waiting out the minimum off time, or `CYCLE` sent to a channel that is off |
   | `aborted` | `ON` cut a `CYCLE` short |
 
 - Fields are `key=value`, with no spaces in values. Hosts ignore fields they don't know, so new fields can be added without a new protocol version.
@@ -71,7 +71,7 @@ Channels are numbered from 1, in the order `Pins.h` lists them. `ch=` in the `?`
 
 - **Minimum off time.** Once a channel cuts power, it stays off for at least `min_off_ms` (2000) whatever asks, including a DTR drop. A power glitch shorter than that is worse for the machine than a clean cycle.
 - **The controller times every cut.** A `CYCLE` ends when the controller's clock says so, and an `OFF` ends at its `max_ms` at the latest. A host that stops sending, hangs or exits can never leave a channel off for longer than that.
-- **A DTR drop is `ON` for every channel**, after the minimum off time. A running `CYCLE` ends early and sends no reply. Nothing from one session reaches the next one.
+- **A DTR drop is `ON` for every channel**, after the minimum off time. A running `CYCLE` ends early and sends no reply. Nothing from one session reaches the next one. A new session that opens before power is back sees the channel as `off`, and its `OFF` holds it again.
 - **While the firmware runs, a channel is on** unless an `OFF` or `CYCLE` holds it off. At reset the firmware drives every channel on before USB starts, within a few milliseconds.
 - **The relay is off when the firmware isn't running.** This covers a controller with no USB power, one being reflashed, and one in its bootloader. The supply's switch, wired across the relay, bypasses it: on ON the machine has power whatever the controller does, and on AUTO the controller decides.
 - A hung controller is reset by its watchdog and comes back on as above.

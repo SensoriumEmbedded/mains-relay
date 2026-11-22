@@ -2,7 +2,7 @@
 
 A USB-controlled mains switch for a bench power supply. A Teensy 3.1 drives a solid-state relay, and a host on the bench PC cuts and restores the supply's mains over USB serial. It was built so that TReadmill, the hardware-in-the-loop suite for TeensyROM firmware, can power-cycle a C64 or C128 that no reset brings back. Nothing in it is specific to TReadmill.
 
-**Status:** the protocol is written. The firmware and the hardware notes are still to come.
+**Status:** the protocol and the firmware are written, and the firmware passes its host tests. Neither has run on the hardware yet, and the hardware notes are still to come.
 
 ## How it is wired
 
@@ -30,6 +30,22 @@ CYCLE 1
 
 `?` identifies the controller and reports each channel's state. `CYCLE 1` cuts channel 1 for 5 seconds, then replies once power is back. [docs/Host_Protocol.md](docs/Host_Protocol.md) is the full contract: every command, the replies, and what happens to the power when the host goes away.
 
+## Building and testing
+
+The sketch is `firmware/MainsRelay/`, for a Teensy 3.1 or 3.2 with Teensyduino 1.61:
+
+```
+arduino-cli compile --fqbn teensy:avr:teensy31 firmware/MainsRelay
+```
+
+Set `RelayPins` in `Pins.h` to the pin that's wired; pin 2 is a placeholder. Switch the supply to ON before you reflash: the relay is off while the Teensy is in its bootloader.
+
+The protocol tests run the firmware's own engine on the PC, with a simulated clock and relay. They need Node.js and a `c++` compiler on `PATH`:
+
+```
+node --test "firmware/MainsRelay/tests/*.test.mjs"
+```
+
 ## Safety
 
 - The supply's case holds mains wiring. Work on it unplugged.
@@ -42,7 +58,7 @@ CYCLE 1
 | Path | What |
 |---|---|
 | `docs/Host_Protocol.md` | The USB serial protocol (proto 1) |
-| `firmware/` | The Teensy sketch and its host tests (to come) |
+| `firmware/MainsRelay/` | The Teensy sketch; `tests/` runs its protocol engine on the PC |
 | `hardware/` | Schematic, BOM, wiring, photos (to be supplied) |
 
 ## License
