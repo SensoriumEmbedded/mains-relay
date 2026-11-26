@@ -44,6 +44,7 @@ private:
       Held,        // OFF: until ON, a DTR drop or max_ms
       Cycling,     // CYCLE: until off_ms
       Releasing,   // a DTR drop ended the cut; on again after the minimum off time
+      Latched,     // OFF LATCH: until ON or a reset; no max_ms, and a DTR drop leaves it off
    };
    struct Chan
    {

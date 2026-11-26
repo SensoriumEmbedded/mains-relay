@@ -46,7 +46,7 @@ Any serial terminal works. Find the port whose USB serial string is `MainsRelay_
 CYCLE 1
 ```
 
-`?` identifies the controller and reports each channel's state. `CYCLE 1` cuts channel 1 for 5 seconds, then replies once power is back. [docs/Host_Protocol.md](docs/Host_Protocol.md) is the full contract: every command, the replies, and what happens to the power when the host goes away.
+`?` identifies the controller and reports each channel's state. `CYCLE 1` cuts channel 1 for 5 seconds, then replies once power is back. `OFF 1 LATCH` (fw 1.1.0) turns channel 1 off until `ON 1`, with no host needed meanwhile: use it to leave a machine powered down overnight. [docs/Host_Protocol.md](docs/Host_Protocol.md) is the full contract: every command, the replies, and what happens to the power when the host goes away.
 
 ## Building and testing
 
@@ -74,7 +74,7 @@ node --test "firmware/MainsRelay/tests/*.test.mjs"
 - Keep the inlet's earth bonded to the metal chassis, and keep the fuse in the circuit, after both the switch and the relay.
 - The Teensy takes power from USB only, and connects to nothing in the case except the relay's control input, which is isolated from the mains side. Powered from the supply it switches, a power cycle would cut the controller's own power, and the machine would never come back.
 - Keep the Teensy and its wiring clear of the mains side, and strain-relieve the USB cable where it leaves the case.
-- Nothing a host does can leave the machine off for long while the firmware runs. A power cycle ends on the controller's clock, a hold-off ends at its limit (10 minutes by default), and a host that closes the port or sleeps gets the power back on. See "Power behavior" in the protocol.
+- Nothing a host does by accident can leave the machine off for long while the firmware runs. A power cycle ends on the controller's clock, a hold-off ends at its limit (10 minutes by default, an hour at most), and a host that closes the port or sleeps gets the power back on. The exception is deliberate: `OFF <ch> LATCH` keeps a channel off until `ON <ch>` or a controller reset, for powering a machine down overnight with no host attached. See "Power behavior" in the protocol.
 
 ## Layout
 

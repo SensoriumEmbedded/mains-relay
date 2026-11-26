@@ -94,6 +94,11 @@ void Engine::OnDtrDrop()
    {
       Chan &c = Ch[i];
       if (!c.Off) continue;
+      if (c.K == Latched)
+      {
+         c.OnOwed = 0;   // a latch stays (or an ON already ending it goes on), but its reply belonged to that session
+         continue;
+      }
       EndEarly(i, now);
       c.K = Releasing;
       c.CycleOwed = false;
@@ -213,8 +218,11 @@ void Engine::CmdState(int Argc, const char *const *Arg, const int *Len, uint64_t
    if (!Channel("STATE", Arg[0], Len[0], &i)) return;
    const Chan &c = Ch[i];
    uint64_t left = c.Off && c.RestoreAtUs > Now ? (c.RestoreAtUs - Now + 999) / 1000 : 0;
+   if (c.Off && c.K == Latched && !c.Early) left = 0;   // never comes back by itself
    LineBuf b;
-   Reply(b.Str("OK STATE ch=").U64(i + 1).Str(" power=").Str(PowerWord(i)).Str(" left_ms=").U64(left).C());
+   b.Str("OK STATE ch=").U64(i + 1).Str(" power=").Str(PowerWord(i)).Str(" left_ms=").U64(left);
+   if (c.Off && c.K == Latched) b.Str(" latch=1");
+   Reply(b.C());
 }
 
 void Engine::CmdOn(int Argc, const char *const *Arg, const int *Len, uint64_t Now)
@@ -241,34 +249,36 @@ void Engine::CmdOn(int Argc, const char *const *Arg, const int *Len, uint64_t No
 void Engine::CmdOff(int Argc, const char *const *Arg, const int *Len, uint64_t Now)
 {
    uint8_t i;
-   uint32_t ms;
+   uint32_t ms = 0;
    if (Argc < 1 || Argc > 2)
    {
       Reply("ERR OFF syntax");
       return;
    }
    if (!Channel("OFF", Arg[0], Len[0], &i)) return;
-   if (!Millis("OFF", Argc, Arg[1], Len[1], OffDefaultMs, MinOffMs, OffMaxMs, &ms)) return;
+   bool latch = Argc == 2 && SameWord(Arg[1], Len[1], "LATCH");
+   if (!latch && !Millis("OFF", Argc, Arg[1], Len[1], OffDefaultMs, MinOffMs, OffMaxMs, &ms)) return;
    Chan &c = Ch[i];
    if (c.Off && (c.K == Cycling || c.OnOwed))
    {
       Reply("ERR OFF busy");
       return;
    }
-   if (c.Off)
+   if (c.Off && c.K == Latched)
    {
-      // Already off (held, or releasing after a DTR drop): hold it again, with a new limit from now
-      c.K = Held;
-      c.Early = false;
-      c.RestoreAtUs = Now + (uint64_t)ms * 1000;
-      c.Ms = ms;
+      latch = true;   // only ON ends a latch; a plain OFF leaves it latched
+      ms = 0;
    }
-   else
-   {
-      Cut(i, Held, ms, Now);
-   }
+   if (!c.Off) Cut(i, Held, 0, Now);
+   // Already off (held, latched, or releasing after a DTR drop): hold it again, with no glitch
+   c.Early = false;
+   c.K = latch ? Latched : Held;
+   c.RestoreAtUs = latch ? UINT64_MAX : Now + (uint64_t)ms * 1000;
+   c.Ms = ms;
    LineBuf b;
-   Reply(b.Str("OK OFF ch=").U64(i + 1).Str(" power=off max_ms=").U64(ms).C());
+   b.Str("OK OFF ch=").U64(i + 1).Str(" power=off max_ms=").U64(ms);
+   if (latch) b.Str(" latch=1");
+   Reply(b.C());
 }
 
 void Engine::CmdCycle(int Argc, const char *const *Arg, const int *Len, uint64_t Now)

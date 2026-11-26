@@ -202,6 +202,60 @@ test('a new session can hold a channel the last one left releasing', { skip }, (
   assert.deepEqual(edges(out), [...boot1, `power 1 off @${T}`, `power 1 on @${at(5500)}`]);
 });
 
+// --- OFF LATCH ---------------------------------------------------------------
+
+test('OFF LATCH holds the channel off past max_ms, with no EV, until ON', { skip }, () => {
+  const out = run(['boot 1', '> off 1 latch', '+3700000000', '> STATE 1', '> ON 1']);
+  assert.deepEqual(replies(out), [
+    'OK OFF ch=1 power=off max_ms=0 latch=1', 'OK STATE ch=1 power=off left_ms=0 latch=1', 'OK ON ch=1 power=on',
+  ]);
+  assert.deepEqual(edges(out), [...boot1, `power 1 off @${T}`, `power 1 on @${at(3700000)}`]);
+});
+
+test('a latched channel stays off through a DTR drop and a new session', { skip }, () => {
+  const out = run(['boot 1', '> OFF 1 LATCH', '+500000', 'dtr0', '+60000000', 'dtr1', '> STATE 1', '> ?']);
+  assert.deepEqual(replies(out).slice(1), [
+    'OK STATE ch=1 power=off left_ms=0 latch=1',
+    'OK ? proto=1 name=MainsRelay fw=1.0.0 build=2026-01-02T03:04:05 chip=12345678 mcu=teensy31 ch=1 state=off ' +
+      'min_off_ms=2000 max_off_ms=600000',
+  ]);
+  assert.deepEqual(edges(out), [...boot1, `power 1 off @${T}`]);
+});
+
+test('ON to a latch waits out the minimum off time', { skip }, () => {
+  const out = run(['boot 1', '> OFF 1 LATCH', '+500000', '> ON 1', '+1500000']);
+  assert.deepEqual(replies(out), ['OK OFF ch=1 power=off max_ms=0 latch=1', 'OK ON ch=1 power=on']);
+  assert.deepEqual(edges(out).at(-1), `power 1 on @${at(2000)}`);
+});
+
+test('an ON to a latch still lands after a DTR drop, but its reply never reaches the next session', { skip }, () => {
+  const out = run(['boot 1', '> OFF 1 LATCH', '+500000', '> ON 1', 'dtr0', 'dtr1', '+1500000', '> STATE 1']);
+  assert.deepEqual(replies(out), ['OK OFF ch=1 power=off max_ms=0 latch=1', 'OK STATE ch=1 power=on left_ms=0']);
+  assert.deepEqual(edges(out).at(-1), `power 1 on @${at(2000)}`);
+});
+
+test('a plain OFF leaves a latch latched; OFF LATCH latches a held or releasing channel', { skip }, () => {
+  assert.deepEqual(replies(run(['boot 1', '> OFF 1 LATCH', '> OFF 1 5000', '+10000000', '> STATE 1'])), [
+    'OK OFF ch=1 power=off max_ms=0 latch=1', 'OK OFF ch=1 power=off max_ms=0 latch=1',
+    'OK STATE ch=1 power=off left_ms=0 latch=1',
+  ]);
+  const out = run(['boot 1', '> OFF 1 5000', '+500000', 'dtr0', 'dtr1', '> OFF 1 LATCH', '+700000000', '> STATE 1']);
+  assert.deepEqual(replies(out), [
+    'OK OFF ch=1 power=off max_ms=5000', 'OK OFF ch=1 power=off max_ms=0 latch=1',
+    'OK STATE ch=1 power=off left_ms=0 latch=1',
+  ]);
+  assert.deepEqual(edges(out), [...boot1, `power 1 off @${T}`]);
+});
+
+test('OFF LATCH is refused mid-cycle, and a latched channel refuses CYCLE', { skip }, () => {
+  assert.deepEqual(replies(run(['boot 1', '> CYCLE 1', '> OFF 1 LATCH', '> OFF 1 LATCHED', '+5000000'])), [
+    'ERR OFF busy', 'ERR OFF syntax', 'OK CYCLE ch=1 off_ms=5000',
+  ]);
+  assert.deepEqual(replies(run(['boot 1', '> OFF 1 LATCH', '> CYCLE 1', '> OFF 1 LATCH 5'])), [
+    'OK OFF ch=1 power=off max_ms=0 latch=1', 'ERR CYCLE busy', 'ERR OFF syntax',
+  ]);
+});
+
 // --- channels ----------------------------------------------------------------
 
 test('channels switch independently', { skip }, () => {

@@ -17,7 +17,7 @@
 #error "Mains Relay is written for a Teensy 3.1/3.2 (MK20DX256)"
 #endif
 
-#define MR_FW_VERSION "1.0.0"
+#define MR_FW_VERSION "1.1.0"
 
 // A hang resets the chip after this long, and the boot hook turns every relay back on
 static const uint16_t WatchdogMs = 1000;

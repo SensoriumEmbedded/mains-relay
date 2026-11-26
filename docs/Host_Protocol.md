@@ -8,7 +8,7 @@ Protocol version: **1** (`proto=1` in the `?` reply).
 
 - The controller is a USB CDC serial device on the Teensy's micro-USB port. The baud rate is ignored, with one exception: never open the port at 134 baud, which reboots a Teensy into its bootloader. In the bootloader the relay is off (see "Power behavior").
 - Its USB serial string is `MainsRelay_<chipid>`, with the chip id in decimal. The separator is an underscore because pyserial on Windows drops a serial string that contains a dash. The product string is `Mains Relay`. A host finds the controller by its serial string without opening any port. The chip id is the controller's stable unit id.
-- The host must assert DTR, which pyserial and most terminals do by default. When DTR drops (the host closes the port) or the USB bus suspends (the cable is pulled or the PC sleeps), the controller releases everything the host holds (see "Power behavior"). Both count as a DTR drop below.
+- The host must assert DTR, which pyserial and most terminals do by default. When DTR drops (the host closes the port) or the USB bus suspends (the cable is pulled or the PC sleeps), the controller releases everything the host holds except a latch (see "Power behavior"). Both count as a DTR drop below.
 - Bytes that arrive while DTR is low, or while the bus is suspended, are discarded, never run.
 - The controller is powered by USB only, never from the supply it switches.
 
@@ -30,7 +30,7 @@ Protocol version: **1** (`proto=1` in the `?` reply).
   |--------|---------|
   | `syntax` | Unknown command, a missing channel, or a bad number |
   | `range` | A channel this controller doesn't have, or a time outside its range |
-  | `busy` | `OFF` or `CYCLE` sent to a channel in a `CYCLE` or with an `ON` waiting out the minimum off time, or `CYCLE` sent to a channel that is off |
+  | `busy` | `OFF` or `CYCLE` sent to a channel in a `CYCLE` or with an `ON` waiting out the minimum off time, or `CYCLE` sent to a channel that is off (latched included) |
   | `aborted` | `ON` cut a `CYCLE` short |
 
 - Fields are `key=value`, with no spaces in values. Hosts ignore fields they don't know, so new fields can be added without a new protocol version.
@@ -39,7 +39,7 @@ Protocol version: **1** (`proto=1` in the `?` reply).
 ## Events
 
 - Lines the controller sends on its own start with `EV `. They are never written in the middle of a reply line. Hosts ignore `EV` lines they don't know.
-- `EV OFF <ch> timeout` means an `OFF` reached its `max_ms`, and power came back on.
+- `EV OFF <ch> timeout` means an `OFF` reached its `max_ms`, and power came back on. A latch never sends it.
 
 ## Channels
 
@@ -52,7 +52,8 @@ Channels are numbered from 1, in the order `Pins.h` lists them. `ch=` in the `?`
 | `?` | Identity and state | | |
 | `STATE <ch>` | One channel's state | | |
 | `ON <ch>` | Restore power. A running `CYCLE` on the channel ends: it replies `ERR CYCLE aborted`, then `ON` replies | | |
-| `OFF <ch> [max_ms]` | Cut power and hold it off until `ON`, a DTR drop or `max_ms`. `OFF` on a channel already held off starts a new `max_ms` from now | max_ms 2000 to 3600000 | 600000 |
+| `OFF <ch> [max_ms]` | Cut power and hold it off until `ON`, a DTR drop or `max_ms`. `OFF` on a channel already held off starts a new `max_ms` from now. On a latched channel it changes nothing and replies as `OFF LATCH` | max_ms 2000 to 3600000 | 600000 |
+| `OFF <ch> LATCH` | Cut power and latch it off until `ON` or a controller reset: no `max_ms`, and a DTR drop leaves it off. Latches a channel already held off or releasing, with no glitch | | |
 | `CYCLE <ch> [off_ms]` | Cut power, wait `off_ms`, restore it | off_ms 2000 to 60000 | 5000 |
 
 ### Replies
@@ -60,19 +61,20 @@ Channels are numbered from 1, in the order `Pins.h` lists them. `ch=` in the `?`
 | Command | Reply |
 |---------|-------|
 | `?` | `OK ? proto=1 name=MainsRelay fw=<x.y.z> build=<yyyy-mm-ddThh:mm:ss> chip=<decimal> mcu=<teensy31\|…> ch=<n> state=<list> min_off_ms=<n> max_off_ms=<n>` |
-| `STATE` | `OK STATE ch=<n> power=<on\|off\|cycling> left_ms=<n>` |
+| `STATE` | `OK STATE ch=<n> power=<on\|off\|cycling> left_ms=<n>`, with ` latch=1` added when the channel is latched |
 | `ON` | `OK ON ch=<n> power=on` |
-| `OFF` | `OK OFF ch=<n> power=off max_ms=<n>` |
+| `OFF` | `OK OFF ch=<n> power=off max_ms=<n>`, or `OK OFF ch=<n> power=off max_ms=0 latch=1` when the channel is latched |
 | `CYCLE` | `OK CYCLE ch=<n> off_ms=<n>` |
 
-`build` is the newest compile time among the firmware's source files. `state` lists each channel's power in channel order, comma-separated (`state=on`, `state=on,off`). `left_ms` is the time until power returns by itself: the rest of a `CYCLE`'s `off_ms`, or of an `OFF`'s `max_ms`. It is 0 for a channel that is on.
+`build` is the newest compile time among the firmware's source files. `state` lists each channel's power in channel order, comma-separated (`state=on`, `state=on,off`). `left_ms` is the time until power returns by itself: the rest of a `CYCLE`'s `off_ms`, or of an `OFF`'s `max_ms`. It is 0 for a channel that is on, and for a latched one, which never comes back by itself. `latch=1` appears only on a latched channel; a host treats a missing `latch` as 0. The `?` reply's `state` shows a latched channel as `off`, and its `max_off_ms` is the default `max_ms`, not the 3600000 limit.
 
 ## Power behavior
 
 - **Minimum off time.** Once a channel cuts power, it stays off for at least `min_off_ms` (2000) whatever asks, including a DTR drop. A power glitch shorter than that is worse for the machine than a clean cycle.
-- **The controller times every cut.** A `CYCLE` ends when the controller's clock says so, and an `OFF` ends at its `max_ms` at the latest. A host that stops sending, hangs or exits can never leave a channel off for longer than that.
-- **A DTR drop is `ON` for every channel**, after the minimum off time. A running `CYCLE` ends early and sends no reply. Nothing from one session reaches the next one. A new session that opens before power is back sees the channel as `off`, and its `OFF` holds it again.
-- **While the firmware runs, a channel is on** unless an `OFF` or `CYCLE` holds it off. At reset the firmware drives every channel on before USB starts, within a few milliseconds.
+- **The controller times every cut but a latch.** A `CYCLE` ends when the controller's clock says so, and an `OFF` ends at its `max_ms` at the latest. A host that stops sending, hangs or exits can never leave a channel off for longer than that.
+- **A latch is the one deliberate exception.** `OFF <ch> LATCH` is for powering a machine down on purpose, for hours, with no host holding the port. It ends only at `ON <ch>`, or when the controller resets or loses USB power (the latch lives in RAM, and at reset every channel comes on).
+- **A DTR drop is `ON` for every channel that isn't latched**, after the minimum off time. A running `CYCLE` ends early and sends no reply. Nothing from one session reaches the next one, except a latch, which a later session sees in `STATE` and ends with `ON`. A new session that opens before power is back sees the channel as `off`, and its `OFF` holds it again.
+- **While the firmware runs, a channel is on** unless an `OFF`, `OFF LATCH` or `CYCLE` holds it off. A latch is kept in RAM only, so a reset ends it. At reset the firmware drives every channel on before USB starts, within a few milliseconds.
 - **The relay is off when the firmware isn't running.** This covers a controller with no USB power, one being reflashed, and one in its bootloader. The supply's switch, wired across the relay, bypasses it: on ON the machine has power whatever the controller does, and on AUTO the controller decides.
 - A hung controller is reset by its watchdog and comes back on as above.
 
@@ -82,13 +84,15 @@ The controller cannot tell whether the bypass switch is on, or whether anything 
 
 ```
 > ?
-< OK ? proto=1 name=MainsRelay fw=1.0.0 build=2026-11-23T10:12:44 chip=12345678 mcu=teensy31 ch=1 state=on min_off_ms=2000 max_off_ms=600000
+< OK ? proto=1 name=MainsRelay fw=1.1.0 build=2026-11-23T10:12:44 chip=12345678 mcu=teensy31 ch=1 state=on min_off_ms=2000 max_off_ms=600000
 > CYCLE 1
 < OK CYCLE ch=1 off_ms=5000
 > OFF 1 60000
 < OK OFF ch=1 power=off max_ms=60000
 > STATE 1
 < OK STATE ch=1 power=off left_ms=52310
+> OFF 1 LATCH
+< OK OFF ch=1 power=off max_ms=0 latch=1
 > CYCLE 1
 < ERR CYCLE busy
 > ON 1
@@ -100,5 +104,8 @@ The controller cannot tell whether the bypass switch is on, or whether anything 
 ```
 
 ## Versioning
+
+The `OFF <ch> LATCH` form and `STATE`'s `latch` field arrived in fw 1.1.0, as an addition within `proto=1`. A host that needs the latch checks `fw` in the `?` reply; fw 1.0.0 answers `OFF <ch> LATCH` with `ERR OFF syntax` and switches nothing.
+
 
 New commands, fields, `EV` kinds and names keep `proto=1`. A change that would break an existing host raises the number, and a host refuses a `proto` it doesn't speak.
